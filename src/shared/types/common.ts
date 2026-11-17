@@ -1,16 +1,18 @@
+export type ServiceError = { error: string };
+
 export type ServiceResult<T> = {
-  data: T | { error: string };
+  data: T | ServiceError;
   status: number;
 };
 
 export type PaginatedResult<T> = {
   items: T[];
-  total?: number;
-  page?: number;
-  limit?: number;
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
-export type ApiErrorResponse = {
-  error: string;
-  details?: unknown;
+export type PageParams = {
+  page: number;
+  pageSize: number;
 };

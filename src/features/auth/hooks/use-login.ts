@@ -1,50 +1,29 @@
 'use client';
-import { signIn, getSession } from 'next-auth/react';
+
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { useAuthStore } from '@/features/auth/hooks/useAuthStore';
-import { User } from '@/features/auth/types/auth.types';
-import { LoginType } from '@/features/auth/validations/auth.validation';
-
+import { type AuthUserResponse } from '@/features/auth/types/auth';
+import { getSafeRedirect } from '@/features/auth/utils/safe-redirect';
+import { toAuthErrorCode } from '@/features/auth/utils/to-auth-error-code';
+import { type SignInType } from '@/features/auth/validations/sign-in';
+import { http } from '@/shared/lib/http';
 
 export const useLogin = () => {
   const { setUser, setLoading, setError } = useAuthStore();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const handleSession = async (setUserFn: typeof setUser) => {
-    const session = await getSession();
-    const sessionUser = session?.user as User | undefined;
-    if (!sessionUser) return;
-
-    setUserFn({
-      id: sessionUser.id ?? '',
-      name: sessionUser.name ?? '',
-      email: sessionUser.email ?? '',
-      role: sessionUser.role ?? 'user',
-      avatar: sessionUser.avatar ?? '',
-    });
-
-    window.location.href = sessionUser.role === 'admin' ? '/dashboard' : '/';
-  };
-
-  const login = async (data: LoginType) => {
+  const login = async (credentials: SignInType) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await signIn('credentials', {
-        email: data.email,
-        password: data.password,
-        redirect: false,
-      });
-
-      if (result?.error) {
-        setError('Invalid email or password');
-        return;
-      }
-
-      if (result?.ok) {
-        await handleSession(setUser);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      const { user } = await http.post<AuthUserResponse>('/auth/login', credentials);
+      setUser(user);
+      router.replace(getSafeRedirect(searchParams.get('callbackUrl')));
+      router.refresh();
+    } catch (error) {
+      setError(toAuthErrorCode(error));
     } finally {
       setLoading(false);
     }

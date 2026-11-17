@@ -1,41 +1,53 @@
+# Local infrastructure. Start only the backing services for `npm run dev`:
+#   docker compose up -d mongo redis
+# Or run the full production image:
+#   docker compose up --build
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
     ports:
       - '3000:8080'
     environment:
-      NEXTAUTH_URL: ${NEXTAUTH_URL}
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
-      AUTH_TRUST_HOST: 'true'
-      MONGO_URI: ${MONGO_URI}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-app}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
     depends_on:
       mongo:
         condition: service_healthy
-    networks:
-      - app-network
+      redis:
+        condition: service_healthy
 
   mongo:
-    image: mongo:latest
-    restart: always
+    image: mongo:8
+    restart: unless-stopped
     ports:
       - '27017:27017'
     volumes:
       - mongo_data:/data/db
-    networks:
-      - app-network
     healthcheck:
-      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping")']
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   mongo_data:
-
-networks:
-  app-network:

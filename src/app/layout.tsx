@@ -1,7 +1,12 @@
 import { Geist_Mono, Inter, Space_Grotesk } from 'next/font/google';
 import { type ReactNode } from 'react';
 
-import { APP_DESCRIPTION, APP_NAME } from '@/shared/const/app.const';
+import { SentryUserSync } from '@/features/auth/components/sentry-user-sync';
+import { getSession } from '@/features/auth/service/get-session.service';
+import { Toaster } from '@/shared/components/ui/sonner';
+import { APP_DESCRIPTION, APP_NAME } from '@/shared/constants/app';
+import { env } from '@/shared/lib/env';
+import { StoreProvider } from '@/shared/providers/store-provider';
 import { ThemeProvider } from '@/shared/providers/theme-provider';
 
 import type { Metadata } from 'next';
@@ -25,20 +30,31 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 });
 
-export const metadata: Metadata = {
-  title: APP_NAME,
-  description: APP_DESCRIPTION,
-};
+export function generateMetadata(): Metadata {
+  return {
+    metadataBase: new URL(env.get().NEXT_PUBLIC_APP_URL),
+    title: { default: APP_NAME, template: `%s · ${APP_NAME}` },
+    description: APP_DESCRIPTION,
+  };
+}
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const session = await getSession();
+
   return (
     <html
       lang="en"
       className={`${inter.variable} ${spaceGrotesk.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">
-        <ThemeProvider>{children}</ThemeProvider>
+      <body className="flex min-h-full flex-col">
+        <ThemeProvider>
+          <StoreProvider initialUser={session?.user ?? null}>
+            <SentryUserSync />
+            {children}
+            <Toaster position="top-center" richColors />
+          </StoreProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -1,96 +1,145 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { HttpClient } from './http';
+vi.mock('./sentry', () => ({
+  sendHttpErrorToSentry: vi.fn(),
+  startHttpSpan: vi.fn(() => ({ end: vi.fn() })),
+}));
+vi.mock('@/shared/lib/set-http-span-status', () => ({ setHttpSpanStatus: vi.fn() }));
+vi.mock('./force-navigate', () => ({ forceNavigate: vi.fn() }));
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+import { forceNavigate } from './force-navigate';
+import { HttpClient, isHttpError } from './http';
+import { sendHttpErrorToSentry } from './sentry';
 
-function makeResponse(body: unknown, status = 200): Response {
-  const json = JSON.stringify(body);
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: status === 200 ? 'OK' : 'Error',
-    text: async () => json,
-    json: async () => body,
-  } as Response;
+const fetchMock = vi.fn();
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function lastFetchInit(): RequestInit & { headers: Headers } {
+  return fetchMock.mock.lastCall?.[1] as RequestInit & { headers: Headers };
 }
 
 describe('HttpClient', () => {
-  let client: HttpClient;
+  const client = new HttpClient('/api');
 
   beforeEach(() => {
-    client = new HttpClient('https://api.example.com');
-    mockFetch.mockReset();
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('window', { location: { pathname: '/dashboard' } });
   });
 
-  it('GET sends correct request', async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse({ id: 1 }));
-    const result = await client.get('/users');
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://api.example.com/users',
-      expect.objectContaining({ method: 'GET' })
-    );
-    expect(result).toEqual({ id: 1 });
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it('GET appends query params', async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse([]));
-    await client.get('/users', { params: { page: 1, limit: 10 } });
-    const url = mockFetch.mock.calls[0][0] as string;
-    expect(url).toContain('page=1');
-    expect(url).toContain('limit=10');
+  it('GETs JSON with query params, skipping undefined values', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+
+    const result = await client.get('/notes', { params: { page: 2, search: undefined, archived: false } });
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock.mock.lastCall?.[0]).toBe('/api/notes?page=2&archived=false');
+    expect(lastFetchInit().method).toBe('GET');
   });
 
-  it('POST sends body', async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse({ ok: true }));
-    await client.post('/users', { name: 'Alice' });
-    const init = mockFetch.mock.calls[0][1] as RequestInit;
-    expect(init.method).toBe('POST');
-    expect(init.body).toBe(JSON.stringify({ name: 'Alice' }));
+  it.each(['post', 'put', 'patch'] as const)('%s serializes the body as JSON', async (method) => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: '1' }));
+
+    await client[method]('/notes', { title: 'Hello' });
+
+    expect(lastFetchInit().body).toBe('{"title":"Hello"}');
+    expect(lastFetchInit().headers.get('Content-Type')).toBe('application/json');
   });
 
-  it('throws on non-ok response', async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse({ error: 'NOT_FOUND' }, 404));
-    await expect(client.get('/missing')).rejects.toThrow('NOT_FOUND');
+  it('sends FormData as-is without a JSON content type', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}));
+    const formData = new FormData();
+
+    await client.post('/upload', formData);
+
+    expect(lastFetchInit().body).toBe(formData);
+    expect(lastFetchInit().headers.has('Content-Type')).toBe(false);
   });
 
-  it('calls onUnauthorized and throws on 401', async () => {
-    const onUnauthorized = vi.fn();
-    const guardedClient = new HttpClient({ baseUrl: 'https://api.example.com', onUnauthorized });
-    mockFetch.mockResolvedValueOnce(makeResponse({ error: 'UNAUTHORIZED' }, 401));
-    await expect(guardedClient.get('/protected')).rejects.toThrow('UNAUTHORIZED');
-    expect(onUnauthorized).toHaveBeenCalledOnce();
+  it('returns undefined for 204 responses', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(client.delete('/notes/1')).resolves.toBeUndefined();
   });
 
-  it('does not call onUnauthorized on other errors', async () => {
-    const onUnauthorized = vi.fn();
-    const guardedClient = new HttpClient({ baseUrl: 'https://api.example.com', onUnauthorized });
-    mockFetch.mockResolvedValueOnce(makeResponse({ error: 'FORBIDDEN' }, 403));
-    await expect(guardedClient.get('/protected')).rejects.toThrow();
-    expect(onUnauthorized).not.toHaveBeenCalled();
+  it.each([
+    ['text', new Response('plain'), 'plain'],
+    ['blob', new Response('bytes'), expect.any(Blob)],
+  ] as const)('parses %s responses', async (responseType, response, expected) => {
+    fetchMock.mockResolvedValue(response);
+
+    await expect(client.get('/file', { responseType })).resolves.toEqual(expected);
   });
 
-  it('accepts options object with baseUrl', async () => {
-    const optionsClient = new HttpClient({ baseUrl: 'https://dummyjson.com' });
-    mockFetch.mockResolvedValueOnce(makeResponse({ users: [] }));
-    await optionsClient.get('/users');
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://dummyjson.com/users',
-      expect.objectContaining({ method: 'GET' })
-    );
+  it('uses a per-request base URL override', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}));
+
+    await client.get('/health', { baseUrl: '' });
+
+    expect(fetchMock.mock.lastCall?.[0]).toBe('/health');
   });
 
-  it('PUT sends body', async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse({ updated: true }));
-    const result = await client.put('/users/1', { name: 'Bob' });
-    expect(result).toEqual({ updated: true });
+  it('throws an HttpError with the API error code and reports it', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'NOT_FOUND' }, 404));
+
+    const error: unknown = await client.get('/notes/x').catch((caught: unknown) => caught);
+
+    expect(isHttpError(error) && error.code).toBe('NOT_FOUND');
+    expect(isHttpError(error) && error.status).toBe(404);
+    expect(sendHttpErrorToSentry).toHaveBeenCalledWith(error, expect.objectContaining({ status: 404 }));
   });
 
-  it('DELETE sends correct method', async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse(null));
-    await client.delete('/users/1');
-    const init = mockFetch.mock.calls[0][1] as RequestInit;
-    expect(init.method).toBe('DELETE');
+  it('falls back to a generic message when the error body is not JSON', async () => {
+    fetchMock.mockResolvedValue(new Response('oops', { status: 502 }));
+
+    await expect(client.get('/x')).rejects.toThrow('HTTP Error: 502');
+  });
+
+  it('redirects to sign-in on 401 without reporting to Sentry', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'UNAUTHORIZED' }, 401));
+
+    await expect(client.get('/notes')).rejects.toThrow('UNAUTHORIZED');
+
+    expect(forceNavigate).toHaveBeenCalledWith('/sign-in');
+    expect(sendHttpErrorToSentry).not.toHaveBeenCalled();
+  });
+
+  it('does not redirect on 401 while already on an auth page', async () => {
+    vi.stubGlobal('window', { location: { pathname: '/sign-in' } });
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'LOGIN_INVALID' }, 401));
+
+    await expect(client.post('/auth/login', {})).rejects.toThrow('LOGIN_INVALID');
+
+    expect(forceNavigate).not.toHaveBeenCalled();
+  });
+
+  it('reports network failures and rethrows them', async () => {
+    const networkError = new TypeError('Failed to fetch');
+    fetchMock.mockRejectedValue(networkError);
+
+    await expect(client.get('/x')).rejects.toBe(networkError);
+
+    expect(sendHttpErrorToSentry).toHaveBeenCalledWith(networkError, expect.objectContaining({ endpoint: '/x' }));
+  });
+
+  it('does not report aborted requests', async () => {
+    fetchMock.mockRejectedValue(new DOMException('aborted', 'AbortError'));
+
+    await expect(client.get('/x')).rejects.toThrow('aborted');
+
+    expect(sendHttpErrorToSentry).not.toHaveBeenCalled();
+  });
+
+  it('wraps non-Error rejections', async () => {
+    fetchMock.mockRejectedValue('weird');
+
+    await expect(client.get('/x')).rejects.toThrow('An unexpected error occurred');
   });
 });

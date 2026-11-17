@@ -1,9 +1,12 @@
+import { getSession } from '@/features/auth/service/get-session.service';
 import { DashboardOverview } from '@/features/dashboard/components/dashboard-overview';
-import { auth } from '@/shared/lib/auth';
+
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = { title: 'Dashboard' };
 
 export default async function DashboardPage() {
-  const session = await auth();
-  const userName = session?.user?.name ?? 'User';
+  const session = await getSession();
 
-  return <DashboardOverview userName={userName} />;
+  return <DashboardOverview userName={session?.user.name ?? 'there'} />;
 }

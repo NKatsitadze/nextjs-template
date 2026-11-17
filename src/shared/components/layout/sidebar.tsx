@@ -1,13 +1,15 @@
 'use client';
-import { LayoutDashboard, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, NotebookPen, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { SIDEBAR_NAV_ITEMS, type SidebarNavItem } from '@/shared/const/navigation.const';
+import { SIDEBAR_NAV_ITEMS } from '@/shared/constants/navigation';
 import { cn } from '@/shared/lib/utils';
+import { type SidebarNavItem } from '@/shared/types/navigation';
 
 const SIDEBAR_ICON_MAP: Record<SidebarNavItem['icon'], LucideIcon> = {
   dashboard: LayoutDashboard,
+  notes: NotebookPen,
 };
 
 type SidebarProps = {
@@ -31,7 +33,7 @@ export const Sidebar = ({ className, onNavigate }: SidebarProps) => {
       <nav className="flex flex-col gap-1">
         {SIDEBAR_NAV_ITEMS.map(({ href, label, icon }) => {
           const Icon = SIDEBAR_ICON_MAP[icon];
-          const isActive = pathname === href;
+          const isActive = pathname === href || pathname.startsWith(`${href}/`);
 
           return (
             <Link

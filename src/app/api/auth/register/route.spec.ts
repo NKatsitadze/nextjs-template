@@ -1,59 +1,60 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextResponse } from 'next/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/features/auth/service/auth.service', () => ({
-  registerService: vi.fn(),
+vi.mock('@/shared/middleware/validate', () => ({
+  validateBody: vi.fn(async (request: Request) => ({ data: (await request.json()) as unknown })),
 }));
+vi.mock('@/features/auth/service/register.service', () => ({ registerService: vi.fn() }));
 
-vi.mock('@/shared/middleware/validate-body', () => ({
-  validateBody: vi.fn(),
-}));
-
-import { registerService } from '@/features/auth/service/auth.service';
-import { validateBody } from '@/shared/middleware/validate-body';
+import { registerService } from '@/features/auth/service/register.service';
+import { validateBody } from '@/shared/middleware/validate';
 
 import { POST } from './route';
 
-const mockRegister = vi.mocked(registerService);
-const mockValidate = vi.mocked(validateBody);
+const body = { name: 'Ana', email: 'ana@example.com', password: 'secret123' };
 
-function makeRequest(body: unknown) {
-  return new NextRequest('http://localhost/api/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
-  });
+function makeRequest() {
+  return new Request('http://localhost/api/auth/register', { method: 'POST', body: JSON.stringify(body) });
 }
 
 describe('POST /api/auth/register', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('returns 201 on success', async () => {
-    mockValidate.mockResolvedValueOnce({ data: { fullName: 'Bob', email: 'b@b.com', password: 'pass1234' } } as never);
-    mockRegister.mockResolvedValueOnce({ data: { message: 'Account created' }, status: 201 });
-    const res = await POST(makeRequest({}));
-    expect(res.status).toBe(201);
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
-  it('returns 409 when email is taken', async () => {
-    mockValidate.mockResolvedValueOnce({ data: { fullName: 'Bob', email: 'b@b.com', password: 'pass1234' } } as never);
-    mockRegister.mockResolvedValueOnce({ data: { error: 'EMAIL_TAKEN' }, status: 409 });
-    const res = await POST(makeRequest({}));
-    expect(res.status).toBe(409);
+  it('creates the user and returns 201', async () => {
+    const user = { id: 'u1', name: 'Ana', email: 'ana@example.com', role: 'user' as const };
+    vi.mocked(registerService).mockResolvedValue({ data: { user }, status: 201 });
+
+    const response = await POST(makeRequest(), undefined);
+
+    expect(registerService).toHaveBeenCalledWith(body);
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ user });
   });
 
-  it('returns validation error when body is invalid', async () => {
-    mockValidate.mockResolvedValueOnce(
-      NextResponse.json({ error: 'VALIDATION_ERROR' }, { status: 400 })
-    );
-    const res = await POST(makeRequest({}));
-    expect(res.status).toBe(400);
+  it('passes a 409 through', async () => {
+    vi.mocked(registerService).mockResolvedValue({ data: { error: 'EMAIL_TAKEN' }, status: 409 });
+
+    const response = await POST(makeRequest(), undefined);
+
+    expect(response.status).toBe(409);
   });
 
-  it('returns 500 when service throws', async () => {
-    mockValidate.mockResolvedValueOnce({ data: {} } as never);
-    mockRegister.mockRejectedValueOnce(new Error('DB error'));
-    const res = await POST(makeRequest({}));
-    expect(res.status).toBe(500);
+  it('returns the validation error without calling the service', async () => {
+    vi.mocked(validateBody).mockResolvedValueOnce({ error: NextResponse.json({}, { status: 400 }) });
+
+    const response = await POST(makeRequest(), undefined);
+
+    expect(response.status).toBe(400);
+    expect(registerService).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when the service throws', async () => {
+    vi.mocked(registerService).mockRejectedValue(new Error('mongo down'));
+
+    expect((await POST(makeRequest(), undefined)).status).toBe(500);
   });
 });

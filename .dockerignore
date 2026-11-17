@@ -11,54 +11,42 @@ out
 coverage
 test-results
 playwright-report
+playwright
 e2e
-*.spec.ts
-*.test.ts
+junit.xml
+results.xml
+**/*.spec.ts
+**/*.spec.tsx
 
-# Version control
+# Version control & tooling
 .git
 .gitignore
 .github
+.husky
+.claude
+.vscode
+.idea
+.history
+.DS_Store
 
-# Environment variables (add back in your deployment if needed)
+# Environment variables (provide at runtime)
 .env
 .env.*
-.env.local
-.env.development
-.env.test
-.env.production
 !.env.example
 
 # Logs
-logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# IDEs
-.vscode
-.idea
-*.swp
-*.swo
-*~
-.DS_Store
 
 # Docker
 Dockerfile
-Dockerfile.*
 .dockerignore
 docker-compose*.yml
 
 # Documentation
-README.md
-LICENSE
 *.md
 
-# Config files (not needed in image)
-tsconfig.tsbuildinfo
+# Config files not needed in the image
+*.tsbuildinfo
 vitest.config.ts
+vitest.setup.ts
 playwright.config.ts
-
-.history

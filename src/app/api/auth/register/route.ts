@@ -1,17 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-import { registerService } from '@/features/auth/service/auth.service';
-import { SignUpSchema } from '@/features/auth/validations/auth.validation';
-import { validateBody } from '@/shared/middleware/validate-body';
+import { registerService } from '@/features/auth/service/register.service';
+import { SignUpSchema } from '@/features/auth/validations/sign-up';
+import { catchAsync } from '@/shared/middleware/catch-async';
+import { validateBody } from '@/shared/middleware/validate';
 
-export async function POST(req: NextRequest) {
-  try {
-    const validated = await validateBody(req, SignUpSchema);
-    if (validated instanceof NextResponse) return validated;
+export const POST = catchAsync(async (request: Request) => {
+  const validation = await validateBody(request, SignUpSchema);
+  if ('error' in validation) return validation.error;
 
-    const { data, status } = await registerService(validated.data);
-    return NextResponse.json(data, { status });
-  } catch {
-    return NextResponse.json({ error: 'INTERNAL_ERROR' }, { status: 500 });
-  }
-}
+  const { data, status } = await registerService(validation.data);
+  return NextResponse.json(data, { status });
+});

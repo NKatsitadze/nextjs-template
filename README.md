@@ -1,158 +1,74 @@
 # Next.js Starter
 
-Production-ready Next.js 16 starter with App Router, TypeScript, Tailwind CSS,
-shadcn/ui, NextAuth v5, MongoDB via Mongoose, Zustand, Zod, and Vitest.
+Production-ready Next.js 16 template for new projects, aligned with the conventions of `identomat-manage-next`: feature-based architecture, thin API routes over services and repositories, Zustand stores, strict lint and typing, Sentry, and a full unit + e2e test setup.
 
 ## Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | Next.js 16 App Router |
-| Language | TypeScript strict mode |
-| Auth | NextAuth v5 with Credentials and Google OAuth |
-| Database | MongoDB with Mongoose |
-| Styling | Tailwind CSS and shadcn/ui |
-| Validation | Zod, react-hook-form, zodResolver |
-| State | Zustand vanilla store with React context |
-| Testing | Vitest and Testing Library |
-| Linting | ESLint, Next core web vitals, import/order |
-| Git hooks | Husky pre-commit: lint, build, test:run |
+Next.js 16 (App Router, React Compiler, typed routes) · React 19 · TypeScript 6 (strict) · Tailwind CSS 4 · shadcn/ui · Zod 4 · react-hook-form · Zustand 5 · MongoDB (native driver) · Redis (ioredis) · jose + bcryptjs · Sentry · Vitest · Playwright
 
-## Getting Started
+## Quick start
 
-Install dependencies:
+Requires Node 22.12+ (24 LTS recommended, see `.nvmrc`) and Docker.
 
 ```bash
 npm install
+cp .env.example .env                      # then set JWT_SECRET: openssl rand -hex 32
+docker compose up -d mongo redis          # local MongoDB + Redis
+npm run dev                               # http://localhost:3000
 ```
 
-Create local environment:
-
-```bash
-cp .env.example .env.local
-```
-
-Required values:
-
-```env
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=your-secret-here
-MONGO_URI=mongodb://localhost:27017/nextjs-starter
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-```
-
-Start development server:
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000`.
+Create an account at `/sign-up`; you land on `/dashboard`, and `/notes` is the reference CRUD feature.
 
 ## Scripts
 
-```bash
-npm run dev          # Start local dev server
-npm run build        # Production build
-npm run start        # Start production server
-npm run lint         # ESLint check
-npm run lint:fix     # ESLint auto-fix
-npm run typecheck    # TypeScript check
-npm run test         # Vitest watch mode
-npm run test:run     # Vitest one-shot run
-npm run test:cov     # Vitest coverage report
+| Script | What it does |
+|---|---|
+| `npm run dev` | Dev server (Turbopack) |
+| `npm run validate` | Route typegen + typecheck + ESLint (run before every PR) |
+| `npm run test:run` / `npm test` | Unit tests once / in watch mode |
+| `npm run test:cov` | Unit tests with coverage (`coverage/`, `junit.xml`) |
+| `npm run build` / `npm start` | Standalone production build / run it |
+| `npm run e2e` / `npm run e2e:ui` | Playwright against `BASE_URL` (`PW_WEB_SERVER=1` starts the built app for you) |
+
+Husky runs typecheck + lint on staged files before each commit.
+
+## Project structure
+
 ```
-
-Run one test file:
-
-```bash
-npx vitest run src/features/auth/service/auth.service.spec.ts
-```
-
-## Project Structure
-
-```text
 src/
-  app/
-    (public)/                  Public routes: home, sign-in, sign-up
-    (protected)/               Auth-protected routes: dashboard
-    api/                       Thin route handlers
-    globals.css                Tailwind theme and CSS variables
-    layout.tsx                 Root metadata, fonts, theme provider
-  features/
-    auth/
-      components/              Forms and auth page shell
-      hooks/                   Store hook and async auth actions
-      repository/              Mongoose query layer
-      schema/                  User schema and inferred document type
-      service/                 Business logic returning ServiceResult
-      store/                   Zustand vanilla store factory
-      types/                   Auth feature types
-      validations/             Zod schemas
-    dashboard/
-      components/              Protected dashboard UI
-    marketing/
-      components/              Public home page UI
-  shared/
-    components/                Layout and shadcn/ui primitives
-    const/                     Static app, route, nav, and page constants
-    hooks/                     Cross-feature React hooks
-    lib/                       OOP singleton libraries with tests
-    middleware/                Request validation helpers
-    providers/                 App providers
-    types/                     Shared service/result types
-    utils/                     Small shared utilities with tests
-  proxy.ts                     Cookie-based route protection
+  app/                 routes only: (public) marketing, (auth) sign-in/up, (protected) app, api/
+  features/<feature>/  repository · service · store · hooks · components · validations · types · utils · constants
+  shared/              cross-feature: components (ui = shadcn), lib (env, http, mongo, redis, jose, sentry),
+                       middleware (catchAsync, validate, withAuth), service, utils, validations, …
+  proxy.ts             CSRF guard for API writes + fast auth pre-check for protected pages
+  instrumentation*.ts  Sentry init, Mongo index bootstrap
+e2e/                   Playwright specs
 ```
 
-## Architecture Rules
+Conventions — architecture, naming, testing, Sentry usage and the per-project design gate — are in **[AGENTS.md](AGENTS.md)**. `CLAUDE.md` imports it and lists the Claude Code commands in `.claude/`.
 
-- Page files stay thin. Layout and structural UI live in components.
-- API routes validate input with `validateBody`, call one service, and return JSON.
-- Services own business decisions and always return `{ data, status }`.
-- Repositories only perform raw database queries and call `mongo.connect()` first.
-- Static arrays and reusable constants live in `src/shared/const`.
-- Cross-directory imports use the `@/` alias.
-- Forms use `react-hook-form` with `zodResolver`.
-- Shared `lib` files use class syntax, export a singleton, and have co-located tests.
+## Built in
 
-## Docker
+- **Auth**: bcrypt passwords, JWT in an httpOnly cookie backed by a Redis session (7-day idle / 30-day absolute timeout), per-IP+email rate limiting, constant-time unknown-user handling, safe post-login redirects.
+- **Security**: CSRF origin check on API writes, security headers (HSTS in production, `X-Frame-Options`, `nosniff`, referrer and permissions policies), `server-only` boundaries, validated env.
+- **Ops**: `/api/health` (liveness) and `/api/ready` (Mongo + Redis readiness), structured access log per API request, Sentry errors/tracing/profiling (off until a DSN is set), standalone non-root Docker image with healthcheck.
+- **Quality gates**: strict type-aware ESLint (180/200-line limits, import order, no `any`), co-located specs for every route/service/util/lib, Playwright e2e, GitHub Actions CI, Dependabot.
 
-Start app and local MongoDB:
+## Starting a new project from this template
+
+Run `/init-project` in Claude Code, or by hand:
+
+1. Rename: `package.json` `name`, `APP_NAME` / `APP_DESCRIPTION` in `src/shared/constants/app.ts`, this README.
+2. `cp .env.example .env` and generate a `JWT_SECRET`.
+3. In `AGENTS.md` → Design Direction, set `STATUS: unset` so the first UI task defines a new visual identity.
+4. Optionally delete the `notes` example once you have a real feature (see `.claude/commands/init-project.md` for the full list of places).
+5. On GitLab: replace `.github/` with an equivalent `.gitlab-ci.yml`.
+
+## Deployment
 
 ```bash
-docker compose up
+docker build -t my-app .
+docker run -p 3000:8080 --env-file .env my-app
 ```
 
-Run in background:
-
-```bash
-docker compose up -d
-```
-
-Rebuild:
-
-```bash
-docker compose up --build
-```
-
-Stop:
-
-```bash
-docker compose down
-```
-
-Wipe local MongoDB data:
-
-```bash
-docker compose down -v
-```
-
-## Production Notes
-
-- `next.config.ts` pins Turbopack root to this repository to avoid parent-lockfile
-  workspace inference.
-- Remote image optimization is limited to Google OAuth avatars by default.
-- `npm audit fix` has been applied without force. A package override keeps
-  transitive `postcss` on the patched version used by the toolchain.
+The image reads all configuration at runtime. Pass `NEXT_PUBLIC_*`, `SENTRY_PROJECT` and `SENTRY_AUTH_TOKEN` as build args to bake public values and upload source maps.

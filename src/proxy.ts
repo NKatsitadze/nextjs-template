@@ -1,29 +1,39 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 
-import { AUTH_ROUTES, PROTECTED_ROUTES } from '@/shared/const/routes.const';
+import { ACCESS_TOKEN_COOKIE } from '@/features/auth/constants/auth';
+import { type AccessTokenPayload } from '@/features/auth/types/auth';
+import { PROTECTED_ROUTES, SIGN_IN_ROUTE } from '@/shared/constants/routes';
+import { verifyToken } from '@/shared/lib/jose';
+import { isTrustedOrigin } from '@/shared/utils/request';
 
-export function proxy(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+}
 
-  const sessionToken =
-    req.cookies.get('authjs.session-token')?.value ??
-    req.cookies.get('__Secure-authjs.session-token')?.value;
+/**
+ * Runs before every matched request (Node runtime).
+ * - API writes from a foreign Origin are rejected (CSRF).
+ * - Protected pages get a cheap JWT pre-check; the authoritative check (JWT + live Redis
+ *   session) is `getSession()` in `(protected)/layout.tsx` and `withAuth` for API routes.
+ */
+export async function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
 
-  const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
-  if (isAuthRoute && sessionToken) {
-    return NextResponse.redirect(new URL('/dashboard', req.url));
+  if (pathname.startsWith('/api/')) {
+    if (isTrustedOrigin(request)) return NextResponse.next();
+    return NextResponse.json({ error: 'CSRF_INVALID' }, { status: 403 });
   }
 
-  const isProtected = PROTECTED_ROUTES.some((route) => pathname.startsWith(route));
-  if (isProtected && !sessionToken) {
-    const loginUrl = new URL('/sign-in', req.url);
-    loginUrl.searchParams.set('callbackUrl', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
+  if (!isProtectedPath(pathname)) return NextResponse.next();
 
-  return NextResponse.next();
+  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  if (token && (await verifyToken<AccessTokenPayload>(token))) return NextResponse.next();
+
+  const signInUrl = new URL(SIGN_IN_ROUTE, request.url);
+  signInUrl.searchParams.set('callbackUrl', `${pathname}${search}`);
+  return NextResponse.redirect(signInUrl);
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/sign-in', '/sign-up'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico)$).*)'],
 };

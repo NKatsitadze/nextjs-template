@@ -1,11 +1,12 @@
 import { ArrowRight, Boxes, Layers, Shield, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 
+import { HOME_FEATURES, HOME_STATS } from '@/features/marketing/constants/home';
+import { type FeatureCard } from '@/features/marketing/types/home';
 import { Footer } from '@/shared/components/layout/footer';
 import { Header } from '@/shared/components/layout/header';
 import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/shared/components/ui/card';
-import { HOME_FEATURES, HOME_STATS, type FeatureCard } from '@/shared/const/home.const';
 
 const FEATURE_ICON_MAP: Record<FeatureCard['icon'], LucideIcon> = {
   layers: Layers,

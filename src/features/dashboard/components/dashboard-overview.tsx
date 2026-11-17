@@ -9,14 +9,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { DASHBOARD_ACTIVITY, DASHBOARD_CHANNELS, DASHBOARD_METRICS } from '@/features/dashboard/constants/dashboard';
+import { type DashboardMetric } from '@/features/dashboard/types/dashboard';
 import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
-import {
-  DASHBOARD_ACTIVITY,
-  DASHBOARD_CHANNELS,
-  DASHBOARD_METRICS,
-  type DashboardMetric,
-} from '@/shared/const/dashboard.const';
 import { cn } from '@/shared/lib/utils';
 
 const DASHBOARD_ICON_MAP: Record<DashboardMetric['icon'], LucideIcon> = {
